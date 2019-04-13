@@ -1,6 +1,6 @@
-use support::{traits::Currency, traits::WithdrawReason, traits::ExistenceRequirement, decl_module, decl_storage, decl_event, StorageValue, StorageMap, dispatch::Result};
+use support::{traits::Currency, traits::WithdrawReason, traits::ExistenceRequirement, decl_module, decl_storage, decl_event, StorageMap, dispatch::Result, ensure};
 use system::ensure_signed;
-use runtime_primitives::traits::{As, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Hash};
+use runtime_primitives::traits::{As, CheckedAdd, CheckedMul, CheckedSub};
 
 pub trait Trait: balances::Trait + timestamp::Trait + system::Trait {
 	// TODO: Add other types and constants required configure this module.
@@ -31,30 +31,36 @@ decl_module! {
 				<Timestamps<T>>::insert(&who, <timestamp::Module<T>>::now());
 			} else {
 				// get prev time and calculate difference
-				let currentTime = <timestamp::Module<T>>::now();
-				let prevTime = Self::get_timestamp(&who).ok_or("Timestamp not registered")?;
-				let timeDifference = <T::Moment>::as_(currentTime.checked_sub(&prevTime).ok_or("Invalid timestamp")?);
+				let current_time = <timestamp::Module<T>>::now();
+				let prev_time = Self::get_timestamp(&who).ok_or("Timestamp not registered")?;
+				let time_difference = <T::Moment>::as_(current_time.checked_sub(&prev_time).ok_or("Invalid timestamp")?);
 
 				// Store argument
-				let coeff = timeDifference
-					.checked_mul(timeDifference).ok_or("Invalid timestamp")?
-					.checked_mul(timeDifference).ok_or("Invalid timestamp")?
+				let coeff = time_difference
+					.checked_mul(time_difference).ok_or("Invalid timestamp")?
+					.checked_mul(time_difference).ok_or("Invalid timestamp")?
 					.checked_div(1000).ok_or("Invalid timestamp")?;
 
-				let nextAmount = Self::get_amount(&who).ok_or("Amount not registered")?
+				let next_amount = Self::get_amount(&who).ok_or("Amount not registered")?
 					.checked_mul(&<T::Balance>::sa(coeff)).ok_or("Invalid timestamp")?
 					.checked_add(&amount).ok_or("Invalid amount")?;
 
-				<Amounts<T>>::insert(&who, nextAmount);
+				<Amounts<T>>::insert(&who, next_amount);
 			}
 			Self::deposit_event(RawEvent::Deposit(who, amount));
 			return Ok(())
 		}
 
 		pub fn withdraw(origin, amount: T::Balance) -> Result {
-			//let who = ensure_signed(origin)?;
-			//ensure!(<Amounts<T>>::exists(&who));
-			//Self::deposit_event(RawEvent::Withdraw(who, amount));
+			let who = ensure_signed(origin)?;
+			ensure!(<Amounts<T>>::exists(&who), "Account not found.");
+
+			let next_amount = Self::get_amount(&who).ok_or("Amount not registered")?
+				.checked_sub(&amount).ok_or("Invalid amount")?;
+
+			let _ = <balances::Module<T>>::deposit_creating(&who, amount);
+			<Amounts<T>>::insert(&who, next_amount);
+			Self::deposit_event(RawEvent::Withdraw(who, amount));
 			return Ok(())
 		}
 	}
@@ -70,7 +76,6 @@ decl_event!(
 		// To emit this event, we call the deposit funtion, from our runtime funtions
 		Deposit(AccountId, Balance),
 		Withdraw(AccountId, Balance),
-		Timetick(AccountId),
 	}
 );
 
@@ -109,6 +114,24 @@ mod tests {
 		type Header = Header;
 		type Event = ();
 		type Log = DigestItem;
+	}
+	impl balances::Trait for Test {
+		// The type for recording an account's balance.
+		type Balance = u128;
+		/// What to do if an account's free balance gets zeroed.
+		type OnFreeBalanceZero = ();
+		/// What to do if a new account is created.
+		type OnNewAccount = ();
+		/// The uniquitous event type.
+		type Event = Event;
+
+		type TransactionPayment = ();
+		type DustRemoval = ();
+		type TransferPayment = ();
+	}
+	impl timestamp::Trait for Test {
+    	type Moment = u64;
+    	type OnTimestampSet = ();
 	}
 	impl Trait for Test {
 		type Event = ();
