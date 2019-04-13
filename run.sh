@@ -1,4 +1,4 @@
 ./build.sh
 cargo build
-../target/debug/template-node purge-chain --dev
-../target/debug/template-node --dev
+target/debug/node-template purge-chain --dev
+target/debug/node-template --dev
